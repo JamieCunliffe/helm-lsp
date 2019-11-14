@@ -50,6 +50,28 @@ CANDIDATE is the selected item in the helm menu."
   "The face used for code lens overlays."
   :group 'lsp-mode)
 
+(defun helm-lsp--extract-file-name (uri)
+  (propertize
+   (if (string= "jdt" (-> uri url-unhex-string url-generic-parse-url url-type))
+       (cl-second (s-match ".*\(\\(.*\\)" uri))
+     (f-filename uri))
+   'face 'helm-lsp-container-face))
+
+(defun helm-lsp--candidate-to-string (candidate)
+  (setq my/candidate candidate)
+
+  (-let [(candidate &as &hash "containerName" container-name "name" "kind" "location" (&hash "uri")) candidate]
+    (let* ((type (or (alist-get kind lsp--symbol-kind) "Unknown"))
+           (face (or (alist-get kind lsp--symbol-kind-face) 'default)))
+      (concat name
+              " "
+              (propertize (concat "(" type ")") 'face face)
+              " "
+              (unless (s-blank? container-name)
+                (concat (propertize container-name 'face 'helm-lsp-container-face)  " — "))
+              (helm-lsp--extract-file-name uri)
+              ))))
+
 (defun helm-lsp--workspace-symbol (workspaces name input)
   "Search against WORKSPACES NAME with default INPUT."
   (if workspaces
@@ -72,10 +94,10 @@ CANDIDATE is the selected item in the helm menu."
                                        request
                                        (lambda (candidates)
                                          (setq helm-lsp-symbols-request-id nil)
-                                         (and helm-alive-p
-                                              (let ((helm-lsp-symbols-result candidates)
-                                                    (helm-lsp-symbols-result-p t))
-                                                (helm-update))))
+                                         (when helm-alive-p
+                                           (let ((helm-lsp-symbols-result candidates)
+                                                 (helm-lsp-symbols-result-p t))
+                                             (helm-update))))
                                        'detached)
                                       nil))))
                   :action 'helm-lsp-workspace-symbol-action
@@ -85,15 +107,9 @@ CANDIDATE is the selected item in the helm menu."
                   :keymap helm-map
                   :candidate-transformer (lambda (candidates)
                                            (-map
-                                            (-lambda ((candidate &as &hash "containerName" container-name "name" "kind"))
-                                              (let ((type (or (alist-get kind lsp--symbol-kind) "Unknown")))
-                                                (cons
-                                                 (concat (if (s-blank? container-name)
-                                                             name
-                                                           (concat name " " (propertize container-name 'face 'helm-lsp-container-face) " --" ))
-                                                         " "
-                                                         (propertize (concat "(" type ")") 'face 'font-lock-type-face))
-                                                 candidate)))
+                                            (-lambda ((candidate &as &hash "containerName" container-name "name" "kind" "location" (&hash "uri")))
+                                              (cons (helm-lsp--candidate-to-string candidate)
+                                                    candidate))
                                             candidates))
                   :candidate-number-limit nil
                   :requires-pattern 0)
